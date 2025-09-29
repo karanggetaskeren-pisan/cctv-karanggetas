@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CCTV Live Desa - UJI COBA LOKAL</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Leaflet JS (Peta) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <!-- HLS.js (Video Player) -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
+    <style>
+        html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; }
+        #map { width: 100%; height: calc(100vh - 64px); z-index: 10; }
+        #videoModal.hidden { display: none; }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans">
+    
+    <header class="bg-white shadow-md h-16 flex items-center justify-between px-6 z-20 relative">
+        <div class="flex items-center space-x-4">
+            <img src="https://cdn.jsdelivr.net/gh/karanggetaskeren-pisan/aset-website/Logo%20Indramayu.png" alt="Logo Desa" class="h-10">
+            <h1 class="text-xl font-bold text-gray-800">CCTV Live Desa</h1>
+        </div>
+        <div class="text-sm text-gray-600">
+            Pantau sudut desa secara langsung
+        </div>
+    </header>
+
+    <main id="map"></main>
+
+    <div id="videoModal" class="hidden fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+            <div class="flex justify-between items-center p-4 border-b">
+                <h2 id="videoTitle" class="text-lg font-semibold text-gray-900">Memuat CCTV...</h2>
+                <button id="closeModalBtn" class="text-gray-500 hover:text-gray-800 text-2xl font-bold">&times;</button>
+            </div>
+            <div class="p-2 bg-black flex-grow flex items-center justify-center">
+                 <video id="cctvVideo" class="max-w-full max-h-[75vh]" controls autoplay muted playsinline></video>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ===================================================================================
+        // PENTING: BAGIAN YANG SUDAH DIPERBAIKI
+        // ===================================================================================
+
+        // Menggunakan alamat IP LOKAL dari STB untuk uji coba
+        const LOCAL_SERVER_IP = "10.5.0.167"; 
+
+        const initialMapCoordinates = [-6.506855504979234, 108.31230647302876];
+        const initialMapZoom = 14;
+
+        const cctvData = [
+            {
+                name: "CCTV Balai Desa",
+                coords: [-6.5075116720361965, 108.31241459007428],
+                streamName: "cctv2"
+            },
+            {
+                name: "SMP Islam Baitush Sholih",
+                coords: [-6.504661591259149, 108.3095382606473],
+                streamName: "cctv1" // Pastikan cctv2 ada di mediamtx.yml
+            },
+            {
+                name: "Warung Ibu Erti",
+                coords: [-6.512528004200336, 108.3162842249336],
+                streamName: "cctv3"
+            },
+            {
+                name: "Jalan Karanganyar",
+                coords: [-6.517313319329945, 108.32002697875079],
+                streamName: "cctv4"
+            }
+        ];
+
+        // ===================================================================================
+        // BAGIAN KODE APLIKASI (Tidak perlu diubah)
+        // ===================================================================================
+
+        const map = L.map('map').setView(initialMapCoordinates, initialMapZoom);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        }).addTo(map);
+
+        const cctvIcon = L.icon({
+            iconUrl: 'https://www.iconsdb.com/icons/preview/red/security-camera-xxl.png',
+            iconSize: [40, 40],
+            iconAnchor: [20, 40],
+            popupAnchor: [0, -40]
+        });
+        
+        let hls;
+        const videoModal = document.getElementById('videoModal');
+        const videoTitle = document.getElementById('videoTitle');
+        const cctvVideo = document.getElementById('cctvVideo');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+
+        function showCctvStream(name, streamName) {
+            videoTitle.textContent = `Memuat: ${name}`;
+            videoModal.classList.remove('hidden');
+            
+            // MENGGUNAKAN IP LOKAL
+            const videoSrc = `http://${LOCAL_SERVER_IP}:8888/${streamName}/index.m3u8`;
+
+            if (Hls.isSupported()) {
+                if(hls) hls.destroy();
+                hls = new Hls();
+                hls.loadSource(videoSrc);
+                hls.attachMedia(cctvVideo);
+                hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                    cctvVideo.play();
+                    videoTitle.textContent = name;
+                });
+            } else if (cctvVideo.canPlayType('application/vnd.apple.mpegurl')) {
+                cctvVideo.src = videoSrc;
+                cctvVideo.addEventListener('loadedmetadata', function() {
+                    cctvVideo.play();
+                    videoTitle.textContent = name;
+                });
+            }
+        }
+
+        function closeModal() {
+            videoModal.classList.add('hidden');
+            if (hls) {
+                hls.destroy();
+            }
+            cctvVideo.pause();
+            cctvVideo.src = "";
+        }
+
+        closeModalBtn.addEventListener('click', closeModal);
+
+        cctvData.forEach(cctv => {
+            const marker = L.marker(cctv.coords, { icon: cctvIcon }).addTo(map);
+            marker.bindTooltip(cctv.name);
+            marker.on('click', () => {
+                showCctvStream(cctv.name, cctv.streamName);
+            });
+        });
+    </script>
+</body>
+</html>
