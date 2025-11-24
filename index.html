@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CCTV Live Desa - UJI COBA LOKAL</title>
+    <title>CCTV Live Desa - UJI COBA PUBLIK</title>
 
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -16,15 +16,24 @@
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 
     <style>
-        html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; }
+        /* Perbaikan: Menambahkan sedikit style untuk tampilan yang lebih baik saat hover */
+        html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; font-family: 'Inter', sans-serif;}
         #map { width: 100%; height: calc(100vh - 64px); z-index: 10; }
         #videoModal.hidden { display: none; }
+        .leaflet-marker-icon {
+            filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.3));
+            transition: transform 0.2s;
+        }
+        .leaflet-marker-icon:hover {
+            transform: scale(1.1);
+        }
     </style>
 </head>
 <body class="bg-gray-100 font-sans">
     
     <header class="bg-white shadow-md h-16 flex items-center justify-between px-6 z-20 relative">
         <div class="flex items-center space-x-4">
+            <!-- Asumsi gambar logo dapat diakses publik. -->
             <img src="https://cdn.jsdelivr.net/gh/karanggetaskeren-pisan/aset-website/Logo%20Indramayu.png" alt="Logo Desa" class="h-10">
             <h1 class="text-xl font-bold text-gray-800">CCTV Live Desa</h1>
         </div>
@@ -41,19 +50,24 @@
                 <h2 id="videoTitle" class="text-lg font-semibold text-gray-900">Memuat CCTV...</h2>
                 <button id="closeModalBtn" class="text-gray-500 hover:text-gray-800 text-2xl font-bold">&times;</button>
             </div>
-            <div class="p-2 bg-black flex-grow flex items-center justify-center">
+            <div class="p-2 bg-black flex-grow flex items-center justify-center relative min-h-[200px]">
+                 <!-- Video player dengan ukuran responsif -->
                  <video id="cctvVideo" class="max-w-full max-h-[75vh]" controls autoplay muted playsinline></video>
+                 <!-- Tambahkan indikator loading untuk feedback pengguna -->
+                 <div id="loadingIndicator" class="absolute inset-0 bg-black bg-opacity-70 text-white flex items-center justify-center text-lg font-medium hidden">
+                    Memuat Stream...
+                 </div>
             </div>
         </div>
     </div>
 
     <script>
         // ===================================================================================
-        // PENTING: BAGIAN YANG SUDAH DIPERBAIKI
+        // PERBAIKAN UNTUK AKSES LUAR JARINGAN (WAN)
         // ===================================================================================
 
-        // Menggunakan alamat IP LOKAL dari STB untuk uji coba
-        const LOCAL_SERVER_IP = "10.5.0.167"; 
+        // IP PUBLIK Anda terdeteksi: 202.65.239.250
+        const STREAMING_SERVER_ADDRESS = "202.65.239.250"; // <--- SUDAH DIGANTI!
 
         const initialMapCoordinates = [-6.506855504979234, 108.31230647302876];
         const initialMapZoom = 14;
@@ -67,7 +81,7 @@
             {
                 name: "SMP Islam Baitush Sholih",
                 coords: [-6.504661591259149, 108.3095382606473],
-                streamName: "cctv1" // Pastikan cctv2 ada di mediamtx.yml
+                streamName: "cctv1"
             },
             {
                 name: "Warung Ibu Erti",
@@ -82,7 +96,7 @@
         ];
 
         // ===================================================================================
-        // BAGIAN KODE APLIKASI (Tidak perlu diubah)
+        // BAGIAN KODE APLIKASI
         // ===================================================================================
 
         const map = L.map('map').setView(initialMapCoordinates, initialMapZoom);
@@ -104,29 +118,59 @@
         const videoTitle = document.getElementById('videoTitle');
         const cctvVideo = document.getElementById('cctvVideo');
         const closeModalBtn = document.getElementById('closeModalBtn');
+        const loadingIndicator = document.getElementById('loadingIndicator'); // Dapatkan elemen loading
 
         function showCctvStream(name, streamName) {
             videoTitle.textContent = `Memuat: ${name}`;
             videoModal.classList.remove('hidden');
-            
-            // MENGGUNAKAN IP LOKAL
-            const videoSrc = `http://${LOCAL_SERVER_IP}:8888/${streamName}/index.m3u8`;
+            loadingIndicator.classList.remove('hidden'); // Tampilkan loading
+
+            // URL sekarang menggunakan IP Publik Anda
+            // Port 8888 digunakan karena ini adalah port MediaMTX yang Anda akses sebelumnya.
+            const videoSrc = `http://${STREAMING_SERVER_ADDRESS}:8888/${streamName}/index.m3u8`;
 
             if (Hls.isSupported()) {
                 if(hls) hls.destroy();
                 hls = new Hls();
                 hls.loadSource(videoSrc);
                 hls.attachMedia(cctvVideo);
+                
                 hls.on(Hls.Events.MANIFEST_PARSED, function() {
                     cctvVideo.play();
                     videoTitle.textContent = name;
+                    loadingIndicator.classList.add('hidden'); // Sembunyikan loading jika berhasil
                 });
+
+                hls.on(Hls.Events.ERROR, function (event, data) {
+                    if (data.fatal) {
+                        let errorMsg;
+                        if (data.details === 'manifestLoadError' && data.response && data.response.code === 0) {
+                             // Jika kode 0, ini adalah masalah koneksi jaringan/CORS/Port Forwarding
+                            errorMsg = `GAGAL KONEKSI (Port/Firewall)! Pastikan Port 8888 sudah di-Forwarding ke IP 10.5.0.167 di router Anda.`;
+                        } else {
+                            errorMsg = `ERROR: ${data.details}. Coba Muat Ulang.`;
+                        }
+
+                        console.error(errorMsg, data);
+                        videoTitle.textContent = `${name} (Gagal Memuat)`;
+                        loadingIndicator.textContent = errorMsg;
+                        loadingIndicator.classList.remove('hidden'); 
+                    }
+                });
+
             } else if (cctvVideo.canPlayType('application/vnd.apple.mpegurl')) {
+                // Untuk Safari/iOS
                 cctvVideo.src = videoSrc;
                 cctvVideo.addEventListener('loadedmetadata', function() {
                     cctvVideo.play();
                     videoTitle.textContent = name;
+                    loadingIndicator.classList.add('hidden');
                 });
+            } else {
+                // Jika HLS.js tidak didukung dan browser tidak mendukung HLS native
+                videoTitle.textContent = `${name} (Browser tidak mendukung HLS)`;
+                loadingIndicator.textContent = 'Browser Anda tidak mendukung streaming HLS.';
+                loadingIndicator.classList.remove('hidden');
             }
         }
 
@@ -137,6 +181,7 @@
             }
             cctvVideo.pause();
             cctvVideo.src = "";
+            loadingIndicator.textContent = 'Memuat Stream...'; // Reset pesan loading
         }
 
         closeModalBtn.addEventListener('click', closeModal);
@@ -151,4 +196,3 @@
     </script>
 </body>
 </html>
-
